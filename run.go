@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -121,13 +122,30 @@ func _getOutputArgs(node *Node, streamNameMap map[string]string) []string {
 	if len(node.GetInComingEdges()) == 0 {
 		panic("Output node has no mapped streams")
 	}
-	for _, e := range node.GetInComingEdges() {
-		streamName := formatInputStreamName(streamNameMap, e, true)
-		if streamName != "0" || len(node.GetInComingEdges()) > 1 {
-			args = append(args, "-map", streamName)
+
+	kwargs := node.kwargs.Copy()
+
+	streamIndexMap := make(map[int]bool)
+	if mapVal, ok := kwargs["map"]; ok {
+		if mapArray, ok := mapVal.([]string); ok {
+			for _, m := range mapArray {
+				var streamIndex int
+				if _, err := fmt.Sscanf(m, "%d", &streamIndex); err == nil {
+					streamIndexMap[streamIndex] = true
+				}
+			}
 		}
 	}
-	kwargs := node.kwargs.Copy()
+
+	for _, e := range node.GetInComingEdges() {
+		streamName := formatInputStreamName(streamNameMap, e, true)
+		streamIndex, _ := strconv.Atoi(streamName)
+		if !streamIndexMap[streamIndex] {
+			if streamName != "0" || len(node.GetInComingEdges()) > 1 {
+				args = append(args, "-map", streamName)
+			}
+		}
+	}
 
 	filename := kwargs.PopString("filename")
 	if kwargs.HasKey("format") {
@@ -268,7 +286,7 @@ func (s *Stream) Compile(options ...CompilationOption) *exec.Cmd {
 	for _, option := range GlobalCommandOptions {
 		option(cmd)
 	}
-  if LogCompiledCommand {
+	if LogCompiledCommand {
 		log.Printf("compiled command: ffmpeg %s\n", strings.Join(args, " "))
 	}
 	return cmd
